@@ -1,0 +1,996 @@
+{
+  "name": "LXG - 02 - Lead Qualification",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LXG-02 Lead Qualification\nTakes PENDING rows from **Intake**, applies filters + de-duplication + suppression checks.\nQualified → appended to **Leads** as QUALIFIED. Everything else is marked on the Intake row with a Reason.\n\n**Edit rules:** open *Qualify & Dedupe* (CONFIG block at the top). Countries/email status via env vars.",
+        "height": 200,
+        "width": 520,
+        "color": 4
+      },
+      "id": "d890df02-a859-5b83-b66d-21515d18f33e",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -440
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ad52d8c4-57bc-58bb-b74c-dd80a2700d2f",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "2343d334-cdfa-5693-872b-2731cf0ea209",
+      "name": "Every 2 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Intake",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Intake Status",
+              "lookupValue": "PENDING"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aacc2dcf-016f-510d-a269-f244335c342f",
+      "name": "Read Pending Intake",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "c867023d-4117-5c1d-b105-c76af1709cb6",
+      "name": "Read Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Suppression",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "41a1bad1-a479-5033-a76a-d6c48acd19f7",
+      "name": "Read Suppression",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        780,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-02 · Qualify + deduplicate pending Intake rows.\n// Output: one item per Intake row -> { intake: {...columns to write back}, lead: {...Leads row} | null }\n// Rules live in the CONFIG block below — edit there to change targeting.\n\n// ============================== CONFIG ==============================\nconst ALLOWED_COUNTRIES = (($env.ALLOWED_COUNTRIES || 'united kingdom,uk,great britain,gb,england,scotland,wales,northern ireland'))\n  .toLowerCase().split(',').map(x => x.trim()).filter(Boolean);\nconst ALLOWED_EMAIL_STATUS = (($env.ALLOWED_EMAIL_STATUS || 'verified')).toLowerCase().split(',').map(x => x.trim()).filter(Boolean);\nconst REQUIRE_FIRST_NAME = String($env.REQUIRE_FIRST_NAME || 'true') === 'true';\n\nconst TITLE_INCLUDE = /\\b(owner|co-?owner|founder|co-?founder|proprietor|director|buyer|head of buying|purchasing|procurement)\\b/i;\nconst TITLE_GM = /\\bgeneral manager\\b/i;\nconst GM_SEGMENTS = ['clubs', 'golf', 'fitness', 'hospitality_gift', 'sailing'];   // \"General Manager where appropriate\"\nconst TITLE_EXCLUDE = /(assistant|\\bintern\\b|trainee|student|junior|apprentice|non-?executive|\\b(finance|financial|hr|human resources|it|technology|marketing|legal|compliance|digital|sales|engineering|creative)\\s+(director|manager)\\b|director of (finance|hr|human resources|it|technology|marketing|legal|compliance|digital|sales|engineering))/i;\n\n// First match wins. Matched against company + industry + keywords + domain.\nconst SEGMENTS = [\n  ['clubs',            /country club|members'? club|private club|social club|polo club/],\n  ['golf',             /\\bgolf|pro ?shop/],\n  ['equestrian',       /equestrian|\\bhorse|\\bequine|saddl|riding/],\n  ['motorsport',       /motorsport|motor sport|\\bracing\\b|karting|motorcycle/],\n  ['sailing',          /yacht|sailing|marina|\\bmarine\\b|rowing club/],\n  ['fitness',          /\\b(gym|fitness|pilates|yoga|crossfit|health club)\\b/],\n  ['hospitality_gift', /gift shop|\\bgifts?\\b|souvenir|tourist|visitor|\\bhotel|resort|\\bspa\\b/],\n  ['sporting_goods',   /sporting goods|sports retail|sports shop|sports store|outdoor/],\n  ['menswear',         /menswear|men'?s wear|gentlemen|tailor|outfitter|clothier|haberdash/],\n  ['lifestyle_retail', /lifestyle|boutique|concept store|premium retail|independent retail/]\n];\n// Anything matching this is rejected outright (fast fashion, discount, supermarkets, mass-market).\nconst EXCLUDE_COMPANY = new RegExp(\n  '(fast ?fashion|discount|supermarket|hypermarket|budget|pound ?(shop|land|stretcher)|dollar|wholesale club|mass[- ]market|' +\n  '\\\\b(primark|shein|boohoo|asos|prettylittlething|temu|asda|tesco|sainsbury|aldi|lidl|morrisons|poundland|b&m|matalan|' +\n  'sports ?direct|jd sports|argos|walmart|costco|h&m|zara|next plc|new look|tk ?maxx)\\\\b)', 'i');\nconst GENERIC_LOCAL = /^(info|sales|hello|hi|admin|office|enquiries|enquiry|contact|support|team|mail|reception|bookings?|shop|store|accounts?|hr|jobs|careers|press|marketing|webmaster|orders|service)$/i;\n// ====================================================================\n\nfunction hash(str) {\n  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;\n  for (let i = 0; i < str.length; i++) { const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }\n  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);\n  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);\n  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);\n}\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst low = v => s(v).toLowerCase();\nconst domainOf = r => low(r['Domain']) || low(r['Email']).split('@')[1] || '';\nconst nameKey = (domain, first, last) => `${domain}|${low(first)} ${low(last)}`.trim();\nconst isGeneric = email => GENERIC_LOCAL.test(email.split('@')[0] || '');\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/;\n\nconst nowIso = new Date().toISOString();\nconst pending = $('Read Pending Intake').all().map(i => i.json).filter(r => r['Intake ID']);\nconst leads = $('Read Leads').all().map(i => i.json).filter(r => r['Lead ID'] || r['Email']);\nconst supp = $('Read Suppression').all().map(i => i.json).filter(r => r['Email'] || r['Domain']);\n\nconst leadById = new Map(leads.map(r => [r['Lead ID'], r]));\nconst emails = new Set(leads.map(r => low(r['Email'])).filter(Boolean));\nconst names = new Set(leads.map(r => nameKey(domainOf(r), r['First Name'], r['Last Name'])));\nconst namedDomains = new Set(leads.filter(r => r['Email'] && !isGeneric(low(r['Email']))).map(domainOf));\nconst suppEmails = new Set(supp.map(r => low(r['Email'])).filter(Boolean));\nconst suppDomains = new Set(supp.map(r => low(r['Domain'])).filter(Boolean));\n\nfunction segmentOf(r) {\n  const text = low(`${r['Company']} ${r['Industry']} ${r['Company Type']} ${r['Domain']}`);\n  for (const [seg, re] of SEGMENTS) if (re.test(text)) return seg;\n  return '';\n}\n\n// Returns { ok, reason, segment }\nfunction evaluate(r) {\n  const email = low(r['Email']);\n  if (!email) return { ok: false, reason: 'MISSING_EMAIL' };\n  if (!EMAIL_RE.test(email)) return { ok: false, reason: 'INVALID_EMAIL_FORMAT' };\n  const domain = domainOf(r);\n  if (suppEmails.has(email) || suppDomains.has(domain)) return { ok: false, status: 'SUPPRESSED', reason: 'ON_SUPPRESSION_LIST' };\n  if (emails.has(email)) return { ok: false, status: 'DUPLICATE', reason: 'DUPLICATE_EMAIL' };\n  if (names.has(nameKey(domain, r['First Name'], r['Last Name'])) && low(r['First Name'])) return { ok: false, status: 'DUPLICATE', reason: 'DUPLICATE_DOMAIN_AND_NAME' };\n  if (!ALLOWED_COUNTRIES.includes(low(r['Country']))) return { ok: false, reason: `COUNTRY_NOT_ALLOWED:${s(r['Country']) || 'blank'}` };\n  if (!ALLOWED_EMAIL_STATUS.includes(low(r['Email Verification Status']))) return { ok: false, reason: `EMAIL_NOT_VERIFIED:${s(r['Email Verification Status']) || 'blank'}` };\n  const blob = `${r['Company']} ${r['Industry']} ${r['Company Type']} ${domain}`;\n  if (EXCLUDE_COMPANY.test(blob)) return { ok: false, reason: 'EXCLUDED_COMPANY_TYPE' };\n  const segment = segmentOf(r);\n  if (!segment) return { ok: false, reason: 'NO_TARGET_SEGMENT' };\n  const title = s(r['Job Title']);\n  if (!title) return { ok: false, reason: 'MISSING_JOB_TITLE' };\n  if (TITLE_EXCLUDE.test(title)) return { ok: false, reason: 'TITLE_EXCLUDED' };\n  const titleOk = TITLE_INCLUDE.test(title) || (TITLE_GM.test(title) && GM_SEGMENTS.includes(segment));\n  if (!titleOk) return { ok: false, reason: TITLE_GM.test(title) ? 'GENERAL_MANAGER_NOT_APPROPRIATE_FOR_SEGMENT' : 'TITLE_NOT_DECISION_MAKER' };\n  if (isGeneric(email) && namedDomains.has(domain)) return { ok: false, reason: 'GENERIC_EMAIL_NAMED_CONTACT_AVAILABLE' };\n  if (REQUIRE_FIRST_NAME && !s(r['First Name'])) return { ok: false, reason: 'MISSING_FIRST_NAME' };\n  return { ok: true, segment };\n}\n\nfunction leadRow(r, segment) {\n  const email = low(r['Email']);\n  return {\n    'Lead ID': 'LXG-' + hash(email), 'First Name': s(r['First Name']), 'Last Name': s(r['Last Name']),\n    'Job Title': s(r['Job Title']), 'Company': s(r['Company']), 'Domain': domainOf(r), 'Email': email,\n    'Industry': s(r['Industry']), 'Country': s(r['Country']), 'Apollo ID': s(r['Apollo ID']),\n    'Instantly ID': '', 'Campaign': '', 'Date Added': s(r['Date Added']) || nowIso,\n    'Date Enrolled': '', 'Last Email Sent': '', 'Reply Date': '', 'Current Status': 'QUALIFIED',\n    'Error Status': '', 'Last Updated': nowIso, 'Website': s(r['Website']), 'Company Type': s(r['Company Type']),\n    'City': s(r['City']), 'Employee Count': s(r['Employee Count']),\n    'Email Verification Status': s(r['Email Verification Status']), 'Source': s(r['Source']),\n    'Segment': segment, 'Last Step Sent': '', 'Reply Meta': '', 'Ack Sent': '', 'Retry Count': '0', 'Stop Reason': ''\n  };\n}\n\n// Named people first, generic mailboxes last, so \"named decision-maker wins\" is deterministic.\nconst ordered = [...pending.filter(r => !isGeneric(low(r['Email']))), ...pending.filter(r => isGeneric(low(r['Email'])))];\nconst out = [];\nfor (const r of ordered) {\n  const id = r['Intake ID'];\n  const email = low(r['Email']);\n  const lid = email ? 'LXG-' + hash(email) : '';\n\n  // Crash-recovery: a previous run appended the lead but failed before updating Intake.\n  if (lid && leadById.has(lid) && s(leadById.get(lid)['Date Added']) === s(r['Date Added'])) {\n    out.push({ json: { intake: { 'Intake ID': id, 'Intake Status': 'QUALIFIED', 'Reason': 'RECOVERED_ALREADY_IN_LEADS', 'Processed At': nowIso }, lead: null } });\n    continue;\n  }\n  const v = evaluate(r);\n  if (v.ok) {\n    const lead = leadRow(r, v.segment);\n    emails.add(email); names.add(nameKey(domainOf(r), r['First Name'], r['Last Name']));\n    if (!isGeneric(email)) namedDomains.add(domainOf(r));\n    out.push({ json: { intake: { 'Intake ID': id, 'Intake Status': 'QUALIFIED', 'Reason': `SEGMENT:${v.segment}`, 'Processed At': nowIso }, lead } });\n  } else {\n    out.push({ json: { intake: { 'Intake ID': id, 'Intake Status': v.status || 'REJECTED', 'Reason': v.reason, 'Processed At': nowIso }, lead: null } });\n  }\n}\nconst q = out.filter(o => o.json.lead).length;\nconsole.log(`Qualification: ${pending.length} pending -> ${q} qualified, ${pending.length - q} not qualified`);\nreturn out;\n"
+      },
+      "id": "190809a9-1fef-55c9-b2b0-34b96364a9f9",
+      "name": "Qualify & Dedupe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "7a1f1a9b-3d93-5db9-a47d-6d38a91af862",
+              "leftValue": "={{ !!$json.lead }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3b34ffba-8b13-585b-8c4b-f714589498f7",
+      "name": "Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.lead[\"Lead ID\"] }}",
+            "First Name": "={{ $json.lead[\"First Name\"] }}",
+            "Last Name": "={{ $json.lead[\"Last Name\"] }}",
+            "Job Title": "={{ $json.lead[\"Job Title\"] }}",
+            "Company": "={{ $json.lead[\"Company\"] }}",
+            "Domain": "={{ $json.lead[\"Domain\"] }}",
+            "Email": "={{ $json.lead[\"Email\"] }}",
+            "Industry": "={{ $json.lead[\"Industry\"] }}",
+            "Country": "={{ $json.lead[\"Country\"] }}",
+            "Apollo ID": "={{ $json.lead[\"Apollo ID\"] }}",
+            "Instantly ID": "={{ $json.lead[\"Instantly ID\"] }}",
+            "Campaign": "={{ $json.lead[\"Campaign\"] }}",
+            "Date Added": "={{ $json.lead[\"Date Added\"] }}",
+            "Date Enrolled": "={{ $json.lead[\"Date Enrolled\"] }}",
+            "Last Email Sent": "={{ $json.lead[\"Last Email Sent\"] }}",
+            "Reply Date": "={{ $json.lead[\"Reply Date\"] }}",
+            "Current Status": "={{ $json.lead[\"Current Status\"] }}",
+            "Error Status": "={{ $json.lead[\"Error Status\"] }}",
+            "Last Updated": "={{ $json.lead[\"Last Updated\"] }}",
+            "Website": "={{ $json.lead[\"Website\"] }}",
+            "Company Type": "={{ $json.lead[\"Company Type\"] }}",
+            "City": "={{ $json.lead[\"City\"] }}",
+            "Employee Count": "={{ $json.lead[\"Employee Count\"] }}",
+            "Email Verification Status": "={{ $json.lead[\"Email Verification Status\"] }}",
+            "Source": "={{ $json.lead[\"Source\"] }}",
+            "Segment": "={{ $json.lead[\"Segment\"] }}",
+            "Last Step Sent": "={{ $json.lead[\"Last Step Sent\"] }}",
+            "Reply Meta": "={{ $json.lead[\"Reply Meta\"] }}",
+            "Ack Sent": "={{ $json.lead[\"Ack Sent\"] }}",
+            "Retry Count": "={{ $json.lead[\"Retry Count\"] }}",
+            "Stop Reason": "={{ $json.lead[\"Stop Reason\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First Name",
+              "displayName": "First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Name",
+              "displayName": "Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Industry",
+              "displayName": "Industry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Apollo ID",
+              "displayName": "Apollo ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instantly ID",
+              "displayName": "Instantly ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Campaign",
+              "displayName": "Campaign",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Enrolled",
+              "displayName": "Date Enrolled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Email Sent",
+              "displayName": "Last Email Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reply Date",
+              "displayName": "Reply Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Current Status",
+              "displayName": "Current Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Error Status",
+              "displayName": "Error Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company Type",
+              "displayName": "Company Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Employee Count",
+              "displayName": "Employee Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email Verification Status",
+              "displayName": "Email Verification Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Segment",
+              "displayName": "Segment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Step Sent",
+              "displayName": "Last Step Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reply Meta",
+              "displayName": "Reply Meta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ack Sent",
+              "displayName": "Ack Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Retry Count",
+              "displayName": "Retry Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Stop Reason",
+              "displayName": "Stop Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "fdea52ed-9de0-551c-9e10-cbe82e00d88a",
+      "name": "Append to Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1560,
+        -220
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-02 · After the Leads append succeeds, emit the Intake updates for the qualified rows.\n// (Rejected rows take a separate branch and are updated immediately.)\nreturn $('Qualify & Dedupe').all().filter(i => i.json.lead).map(i => ({ json: { intake: i.json.intake } }));\n"
+      },
+      "id": "5486ec7c-0d82-5342-8cfd-51469dd5a27d",
+      "name": "Intake updates (qualified)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        -220
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Intake",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Intake ID": "={{ $json.intake[\"Intake ID\"] }}",
+            "Intake Status": "={{ $json.intake[\"Intake Status\"] }}",
+            "Reason": "={{ $json.intake[\"Reason\"] }}",
+            "Processed At": "={{ $json.intake[\"Processed At\"] }}"
+          },
+          "matchingColumns": [
+            "Intake ID"
+          ],
+          "schema": [
+            {
+              "id": "Intake ID",
+              "displayName": "Intake ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Apollo ID",
+              "displayName": "Apollo ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "First Name",
+              "displayName": "First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Name",
+              "displayName": "Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email Verification Status",
+              "displayName": "Email Verification Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Industry",
+              "displayName": "Industry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company Type",
+              "displayName": "Company Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Employee Count",
+              "displayName": "Employee Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Intake Status",
+              "displayName": "Intake Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Processed At",
+              "displayName": "Processed At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "b3b6ebb7-20e0-5c3e-bfd4-54f9b48650ba",
+      "name": "Update Intake",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2080,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Read Pending Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 2 hours": {
+      "main": [
+        [
+          {
+            "node": "Read Pending Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pending Intake": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Read Suppression",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Suppression": {
+      "main": [
+        [
+          {
+            "node": "Qualify & Dedupe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualify & Dedupe": {
+      "main": [
+        [
+          {
+            "node": "Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Append to Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Leads": {
+      "main": [
+        [
+          {
+            "node": "Intake updates (qualified)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake updates (qualified)": {
+      "main": [
+        [
+          {
+            "node": "Update Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "_comment": "Single source of truth for Google Sheet tabs. Used by scripts/generate_workflows.py and scripts/build_sheet_template.py. Column ORDER matters for the sheet; n8n maps by header name.",
+  "tabs": {
+    "Leads": [
+      "Lead ID", "First Name", "Last Name", "Job Title", "Company", "Domain", "Email",
+      "Industry", "Country", "Apollo ID", "Instantly ID", "Campaign", "Date Added",
+      "Date Enrolled", "Last Email Sent", "Reply Date", "Current Status", "Error Status",
+      "Last Updated",
+      "Website", "Company Type", "City", "Employee Count", "Email Verification Status",
+      "Source", "Segment", "Last Step Sent", "Reply Meta", "Ack Sent", "Retry Count", "Stop Reason"
+    ],
+    "Intake": [
+      "Intake ID", "Date Added", "Source", "Apollo ID", "First Name", "Last Name", "Full Name",
+      "Job Title", "Company", "Domain", "Website", "Email", "Email Verification Status",
+      "Industry", "Company Type", "Country", "City", "Employee Count",
+      "Intake Status", "Reason", "Processed At"
+    ],
+    "Suppression": ["Email", "Domain", "Reason", "Source", "Date Added"],
+    "Errors": ["Timestamp", "Workflow", "Execution ID", "Failed Node", "Error Message", "Lead ID", "Execution URL"],
+    "Heartbeat": [
+      "Workflow", "Expected Max Gap (h)", "Active", "Last Success", "Last Failure",
+      "Last Failure Message", "Health", "Last Checked", "Last Alerted"
+    ],
+    "Summary": ["Metric", "Value", "Notes"]
+  },
+  "statuses": [
+    "NEW", "QUALIFIED", "ENROLLED", "CONTACTED", "FOLLOW_UP_PENDING", "COMPLETED",
+    "REPLIED", "STOPPED", "UNSUBSCRIBED", "ERROR"
+  ]
+}

@@ -1,0 +1,4 @@
+# Automatic HTTPS for n8n. Instantly's webhooks need a public HTTPS URL.
+{$N8N_HOST} {
+	reverse_proxy n8n:5678
+}

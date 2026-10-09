@@ -1,0 +1,1555 @@
+{
+  "name": "LXG - 03 - Instantly Enrollment",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LXG-03 Instantly Enrollment\nEnrolls QUALIFIED leads into the right Instantly campaign and records the result.\nInstantly then sends Email 1 (Day 1), Email 2 (Day 4), Email 3 (Day 9) — timing is configured **in Instantly**.\n\n**Safety:** `DRY_RUN=true` (default) sends nothing. **Ramp:** `DAILY_ENROLL_CAP`, `ENROLL_BATCH_SIZE`.\nSuppressed addresses are re-checked here and never enrolled.",
+        "height": 200,
+        "width": 520,
+        "color": 4
+      },
+      "id": "2bb41dc2-d721-52c9-b8c8-268a46ea7f32",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -440
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "734f2655-b0b2-579d-aab1-559112e142a0",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "53b801f4-4689-54f6-8acd-1ab24cdc2973",
+      "name": "Every 30 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "685801ce-f0ca-5b18-b5d6-3161354d872a",
+      "name": "Read Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Suppression",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "b8211ae6-bebf-5a1a-a5e1-433596137a23",
+      "name": "Read Suppression",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-03 · Pick the leads to enroll this run.\n// Output items carry an `action`: enroll | blocked | dryrun  (routed by the Switch node).\nconst DRY_RUN = String($env.DRY_RUN || 'true').toLowerCase() !== 'false';        // safe default: no real sends\nconst DAILY_CAP = parseInt($env.DAILY_ENROLL_CAP || '20', 10);                    // volume ramp control\nconst BATCH = parseInt($env.ENROLL_BATCH_SIZE || '10', 10);                       // per 30-min run\nconst MAX_ATTEMPTS = parseInt($env.MAX_ENROLL_ATTEMPTS || '3', 10);               // controlled retries\nconst DEFAULT_CAMPAIGN = String($env.INSTANTLY_CAMPAIGN_ID_DEFAULT || '').trim();\nlet CAMPAIGN_MAP = {};\ntry { CAMPAIGN_MAP = JSON.parse($env.INSTANTLY_CAMPAIGN_MAP || '{}'); } catch (e) { throw new Error('INSTANTLY_CAMPAIGN_MAP is not valid JSON'); }\n\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst low = v => s(v).toLowerCase();\nconst nowIso = new Date().toISOString();\nconst today = nowIso.slice(0, 10);\n\nconst leads = $('Read Leads').all().map(i => i.json).filter(r => r['Lead ID']);\nconst supp = $('Read Suppression').all().map(i => i.json);\nconst suppEmails = new Set(supp.map(r => low(r['Email'])).filter(Boolean));\nconst suppDomains = new Set(supp.map(r => low(r['Domain'])).filter(Boolean));\n\nconst enrolledToday = leads.filter(r => s(r['Date Enrolled']).startsWith(today)).length;\nconst budget = Math.max(0, Math.min(BATCH, DAILY_CAP - enrolledToday));\n\nconst eligible = leads.filter(r => {\n  const st = s(r['Current Status']);\n  if (st === 'QUALIFIED') return true;\n  // retry only enrollment failures that never reached Instantly, and only a few times\n  return st === 'ERROR' && !s(r['Instantly ID']) && !s(r['Date Enrolled']) && parseInt(r['Retry Count'] || '0', 10) < MAX_ATTEMPTS;\n});\n\nconst out = [];\nconst preview = [];\nlet used = 0;\nfor (const r of eligible) {\n  const email = low(r['Email']);\n  const lid = r['Lead ID'];\n  if (suppEmails.has(email) || suppDomains.has(low(r['Domain']))) {\n    out.push({ json: { action: 'blocked', update: { 'Lead ID': lid, 'Current Status': 'STOPPED', 'Error Status': '', 'Stop Reason': 'SUPPRESSED', 'Last Updated': nowIso } } });\n    continue;\n  }\n  if (used >= budget) continue;\n  const campaign = CAMPAIGN_MAP[s(r['Segment'])] || DEFAULT_CAMPAIGN;\n  if (!campaign) {\n    out.push({ json: { action: 'blocked', update: { 'Lead ID': lid, 'Current Status': 'ERROR', 'Error Status': 'NO_CAMPAIGN_CONFIGURED (set INSTANTLY_CAMPAIGN_ID_DEFAULT)', 'Stop Reason': '', 'Last Updated': nowIso } } });\n    continue;\n  }\n  used++;\n  const location = [s(r['City']), s(r['Country'])].filter(Boolean).join(', ');\n  const payload = {\n    campaign,\n    email,\n    first_name: s(r['First Name']),\n    last_name: s(r['Last Name']),\n    company_name: s(r['Company']),\n    website: s(r['Website']) || s(r['Domain']),\n    skip_if_in_workspace: true,\n    // Available in Instantly copy as {{job_title}}, {{industry}}, {{business_type}}, {{location}}, ...\n    custom_variables: {\n      job_title: s(r['Job Title']),\n      industry: s(r['Industry']),\n      business_type: s(r['Company Type']) || s(r['Segment']),\n      segment: s(r['Segment']),\n      location,\n      city: s(r['City']),\n      country: s(r['Country']),\n      lxg_lead_id: lid\n    }\n  };\n  if (DRY_RUN) preview.push({ leadId: lid, email, campaign, payload });\n  else out.push({ json: { action: 'enroll', leadId: lid, campaign, payload, retryCount: parseInt(r['Retry Count'] || '0', 10) } });\n}\nif (DRY_RUN && preview.length) out.push({ json: { action: 'dryrun', note: 'DRY_RUN=true: nothing sent to Instantly, sheet not changed', count: preview.length, preview } });\nconsole.log(`Enrollment: eligible=${eligible.length} enrolledToday=${enrolledToday} budget=${budget} dryRun=${DRY_RUN}`);\nreturn out;\n"
+      },
+      "id": "d71ff3d1-767c-592c-9822-cb59406dfe39",
+      "name": "Select Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "2df0ba27-d86a-5b71-aaef-6e43c97960e6",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "enroll",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "enroll"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "4ae339e5-a1c1-58f4-ac85-d7f1b848d24f",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "blocked",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "blocked"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "c7fea387-2cf1-5b76-8b46-c584b027f483",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "dryrun",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "dryrun"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a217acaa-08a6-58c8-8243-2bf6d9234fe1",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.instantly.ai/api/v2/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}"
+      },
+      "id": "13ba3ccd-634e-5c98-a401-f1c4c177f804",
+      "name": "Instantly: Add Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG Instantly API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "onError": "continueErrorOutput",
+      "notes": "Instantly API v2 POST /leads. Retries 3x, then goes to the error output (lead marked ERROR)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// LXG-03 · Instantly accepted the lead -> columns to write back.\nconst src = $('Select Batch').item.json;\nconst res = $json || {};\nconst id = res.id || (res.lead && res.lead.id) || '';\nconst now = new Date().toISOString();\nif (!id) {\n  // Instantly returned 2xx but no lead id (e.g. lead already existed in the workspace and was skipped).\n  return { json: { 'Lead ID': src.leadId, 'Current Status': 'ERROR', 'Error Status': 'NO_INSTANTLY_ID_RETURNED (lead may already exist in Instantly)', 'Retry Count': String(src.retryCount + 1), 'Last Updated': now } };\n}\nreturn { json: { 'Lead ID': src.leadId, 'Instantly ID': String(id), 'Campaign': src.campaign, 'Date Enrolled': now, 'Current Status': 'ENROLLED', 'Error Status': '', 'Retry Count': '0', 'Last Updated': now } };\n"
+      },
+      "id": "3394ffdf-cf8c-5668-8500-2ac19f3634c1",
+      "name": "Map Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// LXG-03 · Instantly call failed (after node-level retries) -> mark ERROR, count the attempt.\nconst src = $('Select Batch').item.json;\nconst e = $json.error;\nlet msg = typeof e === 'string' ? e : (e && (e.message || e.description)) || JSON.stringify(e || $json);\nmsg = String(msg).replace(/Bearer\\s+\\S+/gi, 'Bearer ***').replace(/\\s+/g, ' ').slice(0, 200);\nreturn { json: {\n  'Lead ID': src.leadId,\n  'Current Status': 'ERROR',\n  'Error Status': `ENROLL_FAILED: ${msg}`,\n  'Retry Count': String(src.retryCount + 1),\n  'Last Updated': new Date().toISOString()\n} };\n"
+      },
+      "id": "eed94ccb-0b2d-51aa-a7d6-297d82b15dc5",
+      "name": "Map Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json[\"Lead ID\"] }}",
+            "Instantly ID": "={{ $json[\"Instantly ID\"] }}",
+            "Campaign": "={{ $json[\"Campaign\"] }}",
+            "Date Enrolled": "={{ $json[\"Date Enrolled\"] }}",
+            "Current Status": "={{ $json[\"Current Status\"] }}",
+            "Error Status": "={{ $json[\"Error Status\"] }}",
+            "Retry Count": "={{ $json[\"Retry Count\"] }}",
+            "Last Updated": "={{ $json[\"Last Updated\"] }}"
+          },
+          "matchingColumns": [
+            "Lead ID"
+          ],
+          "schema": [
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First Name",
+              "displayName": "First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Name",
+              "displayName": "Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Industry",
+              "displayName": "Industry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Apollo ID",
+              "displayName": "Apollo ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Instantly ID",
+              "displayName": "Instantly ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Campaign",
+              "displayName": "Campaign",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Date Enrolled",
+              "displayName": "Date Enrolled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Email Sent",
+              "displayName": "Last Email Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Reply Date",
+              "displayName": "Reply Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Current Status",
+              "displayName": "Current Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Error Status",
+              "displayName": "Error Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company Type",
+              "displayName": "Company Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Employee Count",
+              "displayName": "Employee Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email Verification Status",
+              "displayName": "Email Verification Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Segment",
+              "displayName": "Segment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Step Sent",
+              "displayName": "Last Step Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Reply Meta",
+              "displayName": "Reply Meta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Ack Sent",
+              "displayName": "Ack Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Retry Count",
+              "displayName": "Retry Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Stop Reason",
+              "displayName": "Stop Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "b22a3955-57ad-56dd-bfa2-f7126fad4dc1",
+      "name": "Update: Enrolled",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1820,
+        -440
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json[\"Lead ID\"] }}",
+            "Current Status": "={{ $json[\"Current Status\"] }}",
+            "Error Status": "={{ $json[\"Error Status\"] }}",
+            "Retry Count": "={{ $json[\"Retry Count\"] }}",
+            "Last Updated": "={{ $json[\"Last Updated\"] }}"
+          },
+          "matchingColumns": [
+            "Lead ID"
+          ],
+          "schema": [
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First Name",
+              "displayName": "First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Name",
+              "displayName": "Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Industry",
+              "displayName": "Industry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Apollo ID",
+              "displayName": "Apollo ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Instantly ID",
+              "displayName": "Instantly ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Campaign",
+              "displayName": "Campaign",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Date Enrolled",
+              "displayName": "Date Enrolled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Email Sent",
+              "displayName": "Last Email Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Reply Date",
+              "displayName": "Reply Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Current Status",
+              "displayName": "Current Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Error Status",
+              "displayName": "Error Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company Type",
+              "displayName": "Company Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Employee Count",
+              "displayName": "Employee Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email Verification Status",
+              "displayName": "Email Verification Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Segment",
+              "displayName": "Segment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Step Sent",
+              "displayName": "Last Step Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Reply Meta",
+              "displayName": "Reply Meta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Ack Sent",
+              "displayName": "Ack Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Retry Count",
+              "displayName": "Retry Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Stop Reason",
+              "displayName": "Stop Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "8f5f52f1-01d3-5a3d-8e79-0b71c288eb85",
+      "name": "Update: Enroll Failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1820,
+        -220
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-03 · If EVERY enrollment in this run failed it is almost certainly systemic\n// (bad API key, campaign missing, Instantly down) -> raise, so the Error Handler emails the owner.\nconst attempted = $('Select Batch').all().filter(i => i.json.action === 'enroll').length;\nconst failed = $('Map Failure').all().length;\nif (attempted > 0 && failed === attempted) {\n  throw new Error(`Instantly enrollment failed for all ${attempted} lead(s) in this run. First error: ${$('Map Failure').first().json['Error Status']}`);\n}\nreturn [{ json: { attempted, failed } }];\n"
+      },
+      "id": "4bbe070a-f4a8-553b-b432-96b127d69aff",
+      "name": "Evaluate Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        -220
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.update[\"Lead ID\"] }}",
+            "Current Status": "={{ $json.update[\"Current Status\"] }}",
+            "Error Status": "={{ $json.update[\"Error Status\"] }}",
+            "Stop Reason": "={{ $json.update[\"Stop Reason\"] }}",
+            "Last Updated": "={{ $json.update[\"Last Updated\"] }}"
+          },
+          "matchingColumns": [
+            "Lead ID"
+          ],
+          "schema": [
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First Name",
+              "displayName": "First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Name",
+              "displayName": "Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Industry",
+              "displayName": "Industry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Apollo ID",
+              "displayName": "Apollo ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Instantly ID",
+              "displayName": "Instantly ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Campaign",
+              "displayName": "Campaign",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Date Enrolled",
+              "displayName": "Date Enrolled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Email Sent",
+              "displayName": "Last Email Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Reply Date",
+              "displayName": "Reply Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Current Status",
+              "displayName": "Current Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Error Status",
+              "displayName": "Error Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Company Type",
+              "displayName": "Company Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Employee Count",
+              "displayName": "Employee Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email Verification Status",
+              "displayName": "Email Verification Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Segment",
+              "displayName": "Segment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Last Step Sent",
+              "displayName": "Last Step Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Reply Meta",
+              "displayName": "Reply Meta",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Ack Sent",
+              "displayName": "Ack Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Retry Count",
+              "displayName": "Retry Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Stop Reason",
+              "displayName": "Stop Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "ce7f9e14-1865-5963-bdea-8f32ede75ca3",
+      "name": "Update: Blocked",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1300,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-03 · Dry run: show what WOULD be enrolled. Nothing is sent, nothing is written.\nconst d = $input.first().json;\nconsole.log(`DRY RUN — would enroll ${d.count} lead(s)`);\nreturn [{ json: d }];\n"
+      },
+      "id": "053993b4-d51e-5cd4-abb5-514e5e914d73",
+      "name": "Dry Run Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 minutes": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Read Suppression",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Suppression": {
+      "main": [
+        [
+          {
+            "node": "Select Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Batch": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Instantly: Add Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update: Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dry Run Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instantly: Add Lead": {
+      "main": [
+        [
+          {
+            "node": "Map Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Map Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Success": {
+      "main": [
+        [
+          {
+            "node": "Update: Enrolled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Failure": {
+      "main": [
+        [
+          {
+            "node": "Update: Enroll Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update: Enroll Failed": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

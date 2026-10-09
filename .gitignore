@@ -1,0 +1,16 @@
+# secrets / local state — never commit
+.env
+*.env
+!.env.example
+n8n_data/
+caddy_data/
+caddy_config/
+# real prospect data
+import/*
+!import/.gitkeep
+!import/sample-sandbox-export.csv
+# misc
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store

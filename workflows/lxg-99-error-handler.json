@@ -1,0 +1,313 @@
+{
+  "name": "LXG - 99 - Error Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LXG-99 Error Handler\nSet as the *Error Workflow* of every other LXG workflow (scripts/link_error_workflow.py does this, or Workflow → Settings → Error workflow).\nOn any failed automatic execution: emails the owner and logs a row on the **Errors** tab. The sheet log runs first (a Sheets outage cannot block the alert); the email is last so a mail failure is visible as a failed execution.\nDuplicate alerts (same workflow + message) are throttled to 1 per 15 min. No retries here by design.",
+        "height": 220,
+        "width": 520,
+        "color": 4
+      },
+      "id": "218d3db4-83f2-54b1-9bde-745170a08f3d",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -440
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "9d7a8323-1bfb-57d4-aff2-b0d2539000fa",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-99 · Turn an n8n Error Trigger payload into a sheet row + alert email.\n// Scrubs obvious secrets, extracts the lead id when a node put \"[lead:LXG-...]\" in its message,\n// and throttles duplicate alerts (same workflow+message) to one per 15 minutes.\nconst p = $input.first().json || {};\nconst ex = p.execution || {}, wf = p.workflow || {};\nconst err = ex.error || {};\nconst scrub = t => String(t || '').replace(/Bearer\\s+\\S+/gi, 'Bearer ***').replace(/(api[_-]?key|token|password|secret)=\\S+/gi, '$1=***').replace(/\\s+/g, ' ').slice(0, 500);\n\nconst message = scrub(err.message || err.description || 'Unknown error');\nconst node = ex.lastNodeExecuted || err.node?.name || (err.node && err.node.name) || 'unknown';\nconst m = /\\[lead:([\\w-]+)\\]/.exec(String(err.message || ''));\nconst leadId = m ? m[1] : '';\nconst ts = new Date().toISOString();\n\nconst sd = $getWorkflowStaticData('global');\nsd.recent = sd.recent || {};\nconst key = `${wf.name}|${message.slice(0, 80)}`;\nconst last = sd.recent[key] ? new Date(sd.recent[key]) : null;\nconst throttled = last && (Date.now() - last.getTime()) < 15 * 60000;\nif (!throttled) sd.recent[key] = ts;\nfor (const k of Object.keys(sd.recent)) if (Date.now() - new Date(sd.recent[k]).getTime() > 86400000) delete sd.recent[k];\n\nconst html = `<h3>n8n workflow failed: ${wf.name || 'unknown'}</h3>\n<table cellpadding=\"3\">\n<tr><td>Time</td><td>${ts}</td></tr>\n<tr><td>Execution ID</td><td>${ex.id || 'n/a'}</td></tr>\n<tr><td>Failed node</td><td>${node}</td></tr>\n<tr><td>Lead ID</td><td>${leadId || 'n/a'}</td></tr>\n<tr><td>Error</td><td>${message}</td></tr></table>\n<p>${ex.url ? `<a href=\"${ex.url}\">Open this execution in n8n</a>` : 'Open n8n → Executions'}. Fix the cause, then use <b>Retry</b> on the execution or run the workflow manually.</p>`;\n\nreturn [{ json: {\n  row: { 'Timestamp': ts, 'Workflow': wf.name || '', 'Execution ID': String(ex.id || ''), 'Failed Node': node, 'Error Message': message, 'Lead ID': leadId, 'Execution URL': ex.url || '' },\n  sendAlert: !throttled,\n  subject: `[LXG ERROR] ${wf.name || 'workflow'} failed at \"${node}\"`,\n  html\n} }];\n"
+      },
+      "id": "93c8420d-77ea-5af3-9ed9-313c0323ea92",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Errors",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.row[\"Timestamp\"] }}",
+            "Workflow": "={{ $json.row[\"Workflow\"] }}",
+            "Execution ID": "={{ $json.row[\"Execution ID\"] }}",
+            "Failed Node": "={{ $json.row[\"Failed Node\"] }}",
+            "Error Message": "={{ $json.row[\"Error Message\"] }}",
+            "Lead ID": "={{ $json.row[\"Lead ID\"] }}",
+            "Execution URL": "={{ $json.row[\"Execution URL\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Execution ID",
+              "displayName": "Execution ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Failed Node",
+              "displayName": "Failed Node",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Error Message",
+              "displayName": "Error Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Lead ID",
+              "displayName": "Lead ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Execution URL",
+              "displayName": "Execution URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "b9deb02a-5cfc-520b-b6f0-041881f95a00",
+      "name": "Log to Errors tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-99 · Re-attach the formatted alert after the Errors-tab write.\nreturn [{ json: $('Format Error').first().json }];\n"
+      },
+      "id": "e437892b-2ca2-568b-89de-f0a0a23587f0",
+      "name": "Restore Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "5761200d-50fa-5648-82de-713fbc5ab67a",
+              "leftValue": "={{ $json.sendAlert }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e5fd7b2b-3c1c-59cf-a3b7-6c3281e1501e",
+      "name": "Send alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.ALERT_EMAIL_FROM }}",
+        "toEmail": "={{ $env.ALERT_EMAIL_TO }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "cae40393-f40b-56e6-b765-eadabbe96927",
+      "name": "Send Error Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1300,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "LXG SMTP (alerts)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Log to Errors tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Errors tab": {
+      "main": [
+        [
+          {
+            "node": "Restore Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Alert": {
+      "main": [
+        [
+          {
+            "node": "Send alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send alert?": {
+      "main": [
+        [
+          {
+            "node": "Send Error Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

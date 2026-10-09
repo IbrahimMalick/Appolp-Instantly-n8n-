@@ -1,0 +1,766 @@
+{
+  "name": "LXG - 01 - Apollo Lead Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LXG-01 Apollo Lead Intake\nPulls prospects (Apollo API **or** CSV fallback) and appends them to the **Intake** tab as PENDING.\nNo filtering here — LXG-02 qualifies and de-duplicates.\n\n**Edit targeting:** open the *Config* node.\n**Source:** env `LEAD_SOURCE_MODE` = `csv` (default) or `apollo_api`.\n**Volume:** env `APOLLO_MAX_PER_RUN`.",
+        "height": 200,
+        "width": 520,
+        "color": 4
+      },
+      "id": "6e9f031b-9150-5f31-8196-9cc89c115f2e",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -440
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ef97461f-aae6-5c12-8b5b-c1c57e4877c2",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "0f1c1967-8838-56b6-b030-fccd88572c65",
+      "name": "Weekdays 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-01 · Config — EDIT THIS NODE to change Apollo targeting or run size.\n// Everything operational (mode, caps) comes from environment variables so the\n// owner never has to touch code for routine changes.\nconst mode = String($env.LEAD_SOURCE_MODE || 'csv').toLowerCase();      // 'apollo_api' | 'csv'\nconst maxPerRun = parseInt($env.APOLLO_MAX_PER_RUN || '50', 10);        // ramp-up control\nconst sd = $getWorkflowStaticData('global');\nconst page = parseInt(sd.apolloPage || '1', 10);\n\nreturn [{ json: {\n  mode,\n  maxPerRun,\n  page,\n  // ---- Apollo \"People API Search\" parameters (used only when mode = apollo_api).\n  // Parameter names follow Apollo's public docs; verify against your plan (see docs/apollo-setup.md).\n  search: {\n    person_titles: [\n      'owner', 'founder', 'co-founder', 'director', 'managing director',\n      'buyer', 'head of buying', 'purchasing manager', 'retail buyer', 'general manager'\n    ],\n    person_locations: ['United Kingdom'],\n    q_organization_keyword_tags: [\n      'golf', 'golf pro shop', 'country club', 'private members club', 'equestrian',\n      'motorsport', 'boutique fitness', 'premium gym', 'gift shop', 'hotel gift shop',\n      'yacht club', 'sailing club', 'sporting goods', 'menswear', 'lifestyle boutique'\n    ],\n    organization_num_employees_ranges: ['1,10', '11,50', '51,200'],\n    page,\n    per_page: Math.min(maxPerRun, 100)\n  }\n} }];\n"
+      },
+      "id": "f850c1b1-d0b1-530b-8e03-cf5d31a6317c",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Intake",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "722c4242-881a-5b55-9707-f0dda87c8a39",
+      "name": "Read Existing Intake",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-01 · Collapse the Intake rows read from the sheet into ONE item that carries the run config forward,\n// so downstream nodes run once (not once per existing row).\nreturn [{ json: $('Config').first().json }];\n"
+      },
+      "id": "f1cad133-6d39-5533-9f37-544ed22ecceb",
+      "name": "Collapse to one item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c82f67fd-f523-54c9-a125-8968cd249e37",
+              "leftValue": "={{ $json.mode === 'apollo_api' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "230f5539-551e-5e23-b9f7-17ea8b3471f8",
+      "name": "Use Apollo API?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/mixed_people/api_search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.search) }}"
+      },
+      "id": "47e68546-2125-574f-ae7f-26a8fe128768",
+      "name": "Apollo Search People",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG Apollo API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "notes": "ADAPTER: Apollo People API Search. Verify path/params against your plan (docs/apollo-setup.md)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-01 · Apollo: drop people we already ingested BEFORE spending enrichment credits,\n// then split the rest into batches of 10 (bulk-match limit).\nconst res = $input.first().json || {};\nconst people = res.people || res.contacts || [];\nconst cfg = $('Config').first().json;\nconst sd = $getWorkflowStaticData('global');\n\nconst known = new Set(\n  $('Read Existing Intake').all().map(i => String(i.json['Apollo ID'] || '')).filter(Boolean)\n);\n\n// advance / reset the search page (persisted only on production runs)\nsd.apolloPage = people.length ? cfg.page + 1 : 1;\n\nconst fresh = people.filter(p => p && p.id && !known.has(String(p.id))).slice(0, cfg.maxPerRun);\nconst batches = [];\nfor (let i = 0; i < fresh.length; i += 10) batches.push(fresh.slice(i, i + 10));\nconsole.log(`Apollo search: ${people.length} returned, ${fresh.length} new, ${batches.length} enrichment batches`);\nreturn batches.map(b => ({ json: { details: b.map(p => ({ id: p.id })) } }));\n"
+      },
+      "id": "a37dd089-f80d-5c26-a78f-2f36498f5593",
+      "name": "Apollo Prefilter (skip known)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/bulk_match",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "f8af329e-3199-5989-b4ef-b97af4926219",
+      "name": "Apollo Bulk Enrich",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        -220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG Apollo API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "notes": "ADAPTER: enrichment uses Apollo credits. Verify endpoint/plan (docs/apollo-setup.md)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-01 · Apollo adapter output -> canonical lead shape.\n// Only maps fields Apollo returns; anything missing stays blank (qualification decides).\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst host = u => s(u).toLowerCase().replace(/^https?:\\/\\//, '').replace(/^www\\./, '').split('/')[0];\n\nconst out = [];\nfor (const it of $input.all()) {\n  for (const m of (it.json.matches || it.json.people || [])) {\n    if (!m) continue;\n    const org = m.organization || {};\n    const first = s(m.first_name), last = s(m.last_name);\n    out.push({ json: {\n      source: 'apollo_api',\n      apollo_id: s(m.id),\n      first_name: first,\n      last_name: last,\n      full_name: s(m.name) || `${first} ${last}`.trim(),\n      job_title: s(m.title),\n      company_name: s(org.name || m.organization_name),\n      company_domain: s(org.primary_domain) || host(org.website_url),\n      website: s(org.website_url),\n      email: s(m.email).toLowerCase(),\n      email_verification_status: s(m.email_status).toLowerCase(),\n      industry: s(org.industry),\n      company_type: [].concat(org.keywords || []).slice(0, 8).join(', ').slice(0, 200),\n      country: s(m.country || org.country),\n      city: s(m.city || org.city),\n      employee_count: s(org.estimated_num_employees)\n    } });\n  }\n}\nreturn out;\n"
+      },
+      "id": "24665bad-2970-548c-a543-2eda6367c2ab",
+      "name": "Normalize Apollo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/files/import/*.csv",
+        "options": {}
+      },
+      "id": "c9e67a2d-d178-5504-b41a-39afbaebe650",
+      "name": "Read CSV files",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        220
+      ],
+      "onError": "continueRegularOutput",
+      "executeOnce": true,
+      "notes": "Reads every .csv in ./import (mounted at /files/import). No file = quietly nothing to do."
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "id": "4d5e4a79-6012-55e5-bb4f-c38b2a72b2a6",
+      "name": "Extract CSV rows",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-01 · CSV fallback adapter. Accepts an Apollo contact export (or any CSV using\n// similar headers). Header matching ignores case, spaces and punctuation.\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst key = k => String(k).toLowerCase().replace(/[^a-z0-9]/g, '');\nconst host = u => s(u).toLowerCase().replace(/^https?:\\/\\//, '').replace(/^www\\./, '').split('/')[0];\n\nconst ALIASES = {\n  first_name: ['firstname'],\n  last_name: ['lastname'],\n  full_name: ['fullname', 'name'],\n  job_title: ['title', 'jobtitle'],\n  company_name: ['company', 'companyname', 'organization', 'companynameforemails'],\n  company_domain: ['companydomain', 'domain', 'primarydomain'],\n  website: ['website', 'companywebsite', 'websiteurl'],\n  email: ['email', 'emailaddress', 'workemail'],\n  email_verification_status: ['emailstatus', 'emailverificationstatus', 'verificationstatus'],\n  industry: ['industry'],\n  company_type: ['companytype', 'keywords', 'companykeywords'],\n  country: ['country', 'companycountry'],\n  city: ['city', 'companycity'],\n  employee_count: ['employees', 'employeecount', 'numemployees', 'estimatednumemployees'],\n  apollo_id: ['apollocontactid', 'apolloid', 'apolloaccountid']\n};\n\nconst out = [];\nfor (const it of $input.all()) {\n  const row = {};\n  for (const [k, v] of Object.entries(it.json)) row[key(k)] = v;\n  const pick = f => { for (const a of ALIASES[f]) if (row[a] !== undefined && s(row[a]) !== '') return s(row[a]); return ''; };\n  const first = pick('first_name'), last = pick('last_name');\n  const website = pick('website');\n  if (!first && !last && !pick('email') && !pick('company_name')) continue;   // blank line\n  out.push({ json: {\n    source: 'csv',\n    apollo_id: pick('apollo_id'),\n    first_name: first,\n    last_name: last,\n    full_name: pick('full_name') || `${first} ${last}`.trim(),\n    job_title: pick('job_title'),\n    company_name: pick('company_name'),\n    company_domain: (pick('company_domain') || host(website)).toLowerCase(),\n    website,\n    email: pick('email').toLowerCase(),\n    email_verification_status: pick('email_verification_status').toLowerCase(),\n    industry: pick('industry'),\n    company_type: pick('company_type').slice(0, 200),\n    country: pick('country'),\n    city: pick('city'),\n    employee_count: pick('employee_count')\n  } });\n}\nreturn out;\n"
+      },
+      "id": "ef8669d5-3ef7-5cab-888b-93f4f7876c6e",
+      "name": "Normalize CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-01 · Build Intake rows. Skips anything already in the Intake tab, caps the run size.\n// NOTE: this is NOT the dedupe/qualification step (that is LXG-02); this only prevents\n// re-importing the exact same source record over and over.\nfunction hash(str) {\n  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;\n  for (let i = 0; i < str.length; i++) {\n    const ch = str.charCodeAt(i);\n    h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);\n  }\n  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);\n  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);\n  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);\n}\nconst cfg = $('Config').first().json;\nconst existing = new Set($('Read Existing Intake').all().map(i => i.json['Intake ID']).filter(Boolean));\nconst now = new Date().toISOString();\nconst rows = [];\nlet skipped = 0;\n\nfor (const { json: l } of $input.all()) {\n  const natural = l.apollo_id || l.email || `${l.company_domain}|${l.full_name}`.toLowerCase();\n  const id = 'IN-' + hash(`${l.source}|${natural}`);\n  if (existing.has(id)) { skipped++; continue; }\n  existing.add(id);\n  if (rows.length >= cfg.maxPerRun) { skipped++; continue; }\n  rows.push({ json: {\n    'Intake ID': id, 'Date Added': now, 'Source': l.source, 'Apollo ID': l.apollo_id,\n    'First Name': l.first_name, 'Last Name': l.last_name, 'Full Name': l.full_name,\n    'Job Title': l.job_title, 'Company': l.company_name, 'Domain': l.company_domain,\n    'Website': l.website, 'Email': l.email, 'Email Verification Status': l.email_verification_status,\n    'Industry': l.industry, 'Company Type': l.company_type, 'Country': l.country, 'City': l.city,\n    'Employee Count': l.employee_count, 'Intake Status': 'PENDING', 'Reason': '', 'Processed At': ''\n  } });\n}\nconsole.log(`Intake: ${rows.length} new rows, ${skipped} skipped (already ingested or over per-run cap)`);\nreturn rows;\n"
+      },
+      "id": "cbaa077a-bdf9-59f9-80ce-a1cff7473b9b",
+      "name": "Build Intake Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Intake",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Intake ID": "={{ $json[\"Intake ID\"] }}",
+            "Date Added": "={{ $json[\"Date Added\"] }}",
+            "Source": "={{ $json[\"Source\"] }}",
+            "Apollo ID": "={{ $json[\"Apollo ID\"] }}",
+            "First Name": "={{ $json[\"First Name\"] }}",
+            "Last Name": "={{ $json[\"Last Name\"] }}",
+            "Full Name": "={{ $json[\"Full Name\"] }}",
+            "Job Title": "={{ $json[\"Job Title\"] }}",
+            "Company": "={{ $json[\"Company\"] }}",
+            "Domain": "={{ $json[\"Domain\"] }}",
+            "Website": "={{ $json[\"Website\"] }}",
+            "Email": "={{ $json[\"Email\"] }}",
+            "Email Verification Status": "={{ $json[\"Email Verification Status\"] }}",
+            "Industry": "={{ $json[\"Industry\"] }}",
+            "Company Type": "={{ $json[\"Company Type\"] }}",
+            "Country": "={{ $json[\"Country\"] }}",
+            "City": "={{ $json[\"City\"] }}",
+            "Employee Count": "={{ $json[\"Employee Count\"] }}",
+            "Intake Status": "={{ $json[\"Intake Status\"] }}",
+            "Reason": "={{ $json[\"Reason\"] }}",
+            "Processed At": "={{ $json[\"Processed At\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Intake ID",
+              "displayName": "Intake ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Apollo ID",
+              "displayName": "Apollo ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First Name",
+              "displayName": "First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Name",
+              "displayName": "Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Domain",
+              "displayName": "Domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email Verification Status",
+              "displayName": "Email Verification Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Industry",
+              "displayName": "Industry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company Type",
+              "displayName": "Company Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "City",
+              "displayName": "City",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Employee Count",
+              "displayName": "Employee Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Intake Status",
+              "displayName": "Intake Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Processed At",
+              "displayName": "Processed At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "01352bb7-7e70-5be7-8127-e527c1407368",
+      "name": "Append to Intake",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2600,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekdays 07:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read Existing Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Existing Intake": {
+      "main": [
+        [
+          {
+            "node": "Collapse to one item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collapse to one item": {
+      "main": [
+        [
+          {
+            "node": "Use Apollo API?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Apollo API?": {
+      "main": [
+        [
+          {
+            "node": "Apollo Search People",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read CSV files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Search People": {
+      "main": [
+        [
+          {
+            "node": "Apollo Prefilter (skip known)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Prefilter (skip known)": {
+      "main": [
+        [
+          {
+            "node": "Apollo Bulk Enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Bulk Enrich": {
+      "main": [
+        [
+          {
+            "node": "Normalize Apollo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Apollo": {
+      "main": [
+        [
+          {
+            "node": "Build Intake Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV files": {
+      "main": [
+        [
+          {
+            "node": "Extract CSV rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract CSV rows": {
+      "main": [
+        [
+          {
+            "node": "Normalize CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize CSV": {
+      "main": [
+        [
+          {
+            "node": "Build Intake Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Intake Rows": {
+      "main": [
+        [
+          {
+            "node": "Append to Intake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

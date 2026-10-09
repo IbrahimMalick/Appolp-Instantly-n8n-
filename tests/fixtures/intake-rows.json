@@ -1,0 +1,271 @@
+{
+  "_comment": "Sandbox data only \u2014 all domains are .example, no real people.",
+  "pending": [
+    {
+      "Intake ID": "T01",
+      "First Name": "Alex",
+      "Last Name": "Morgan",
+      "Job Title": "Owner",
+      "Company": "Fairway Golf Pro Shop",
+      "Domain": "fairwaygolf.example",
+      "Email": "alex@fairwaygolf.example",
+      "Company Type": "golf, pro shop",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://fairwaygolf.example"
+    },
+    {
+      "Intake ID": "T02",
+      "First Name": "Priya",
+      "Last Name": "Shah",
+      "Job Title": "Head of Buying",
+      "Company": "Harbour Yacht Club",
+      "Domain": "harbouryc.example",
+      "Email": "priya@harbouryc.example",
+      "Company Type": "yacht club",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://harbouryc.example"
+    },
+    {
+      "Intake ID": "T03",
+      "First Name": "Tom",
+      "Last Name": "Reed",
+      "Job Title": "Founder",
+      "Company": "Ridgeway Equestrian",
+      "Domain": "ridgewayeq.example",
+      "Email": "",
+      "Company Type": "equestrian",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://ridgewayeq.example"
+    },
+    {
+      "Intake ID": "T04",
+      "First Name": "Lena",
+      "Last Name": "Cole",
+      "Job Title": "Director",
+      "Company": "Studio Nine Pilates",
+      "Domain": "studionine.example",
+      "Email": "lena@studionine.example",
+      "Company Type": "boutique fitness",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "unverified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://studionine.example"
+    },
+    {
+      "Intake ID": "T05",
+      "First Name": "Sam",
+      "Last Name": "Ellis",
+      "Job Title": "Owner",
+      "Company": "Primark",
+      "Domain": "primark.example",
+      "Email": "sam@primark.example",
+      "Company Type": "fast fashion",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://primark.example"
+    },
+    {
+      "Intake ID": "T06",
+      "First Name": "Dave",
+      "Last Name": "King",
+      "Job Title": "Owner",
+      "Company": "Existing Golf Co",
+      "Domain": "existinggolf.example",
+      "Email": "dave@existinggolf.example",
+      "Company Type": "golf",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://existinggolf.example"
+    },
+    {
+      "Intake ID": "T07",
+      "First Name": "Mia",
+      "Last Name": "Fox",
+      "Job Title": "Buyer",
+      "Company": "Paris Boutique",
+      "Domain": "paris.example",
+      "Email": "mia@paris.example",
+      "Company Type": "boutique",
+      "Country": "France",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://paris.example"
+    },
+    {
+      "Intake ID": "T08",
+      "First Name": "Ben",
+      "Last Name": "Hale",
+      "Job Title": "Owner",
+      "Company": "Unsub Menswear",
+      "Domain": "unsub.example",
+      "Email": "ben@unsub.example",
+      "Company Type": "menswear",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://unsub.example"
+    },
+    {
+      "Intake ID": "T09",
+      "First Name": "",
+      "Last Name": "",
+      "Job Title": "Owner",
+      "Company": "Castle Hotel Gift Shop",
+      "Domain": "castlehotel.example",
+      "Email": "info@castlehotel.example",
+      "Company Type": "hotel gift shop",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://castlehotel.example"
+    },
+    {
+      "Intake ID": "T10",
+      "First Name": "Ruth",
+      "Last Name": "Page",
+      "Job Title": "Purchasing Manager",
+      "Company": "Castle Hotel Gift Shop",
+      "Domain": "castlehotel.example",
+      "Email": "ruth@castlehotel.example",
+      "Company Type": "hotel gift shop",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://castlehotel.example"
+    },
+    {
+      "Intake ID": "T11",
+      "First Name": "Joe",
+      "Last Name": "Park",
+      "Job Title": "Marketing Director",
+      "Company": "Silverstone Motorsport Shop",
+      "Domain": "sms.example",
+      "Email": "joe@sms.example",
+      "Company Type": "motorsport",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://sms.example"
+    },
+    {
+      "Intake ID": "T12",
+      "First Name": "Kit",
+      "Last Name": "Dean",
+      "Job Title": "Retail Buyer",
+      "Company": "Dean & Sons Lifestyle Boutique",
+      "Domain": "deansons.example",
+      "Email": "kit@deansons.example",
+      "Company Type": "lifestyle boutique",
+      "Country": "United Kingdom",
+      "City": "Leeds",
+      "Email Verification Status": "verified",
+      "Industry": "Retail",
+      "Apollo ID": "",
+      "Website": "https://deansons.example"
+    }
+  ],
+  "leads": [
+    {
+      "Lead ID": "LXG-existing",
+      "Email": "dave@existinggolf.example",
+      "First Name": "Dave",
+      "Last Name": "King",
+      "Domain": "existinggolf.example",
+      "Current Status": "ENROLLED"
+    }
+  ],
+  "suppression": [
+    {
+      "Email": "ben@unsub.example",
+      "Reason": "UNSUBSCRIBED"
+    }
+  ],
+  "expected": [
+    {
+      "id": "T01",
+      "status": "QUALIFIED"
+    },
+    {
+      "id": "T02",
+      "status": "QUALIFIED"
+    },
+    {
+      "id": "T03",
+      "status": "REJECTED",
+      "reason": "MISSING_EMAIL"
+    },
+    {
+      "id": "T04",
+      "status": "REJECTED",
+      "reason": "EMAIL_NOT_VERIFIED"
+    },
+    {
+      "id": "T05",
+      "status": "REJECTED",
+      "reason": "EXCLUDED_COMPANY_TYPE"
+    },
+    {
+      "id": "T06",
+      "status": "DUPLICATE",
+      "reason": "DUPLICATE_EMAIL"
+    },
+    {
+      "id": "T07",
+      "status": "REJECTED",
+      "reason": "COUNTRY_NOT_ALLOWED"
+    },
+    {
+      "id": "T08",
+      "status": "SUPPRESSED",
+      "reason": "ON_SUPPRESSION_LIST"
+    },
+    {
+      "id": "T09",
+      "status": "REJECTED",
+      "reason": "GENERIC_EMAIL_NAMED_CONTACT_AVAILABLE"
+    },
+    {
+      "id": "T10",
+      "status": "QUALIFIED"
+    },
+    {
+      "id": "T11",
+      "status": "REJECTED",
+      "reason": "TITLE_EXCLUDED"
+    },
+    {
+      "id": "T12",
+      "status": "QUALIFIED"
+    }
+  ]
+}

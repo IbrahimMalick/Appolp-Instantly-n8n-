@@ -1,0 +1,485 @@
+{
+  "name": "LXG - 05 - Reporting",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LXG-05 Reporting\nWeekly (Mondays 08:00 UK) summary email + refreshes n8n-owned rows on the **Summary** tab.\nLead counts come from the Leads tab; emails sent / campaign status come from Instantly (if reachable — the report still sends if not).\nChange frequency: edit the schedule node. Recipient: env `ALERT_EMAIL_TO` (or `REPORT_EMAIL_TO` if set).",
+        "height": 200,
+        "width": 520,
+        "color": 4
+      },
+      "id": "a8e42a05-bde8-5e55-a237-92b75a9a668b",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -440
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "8526ba8d-dc8e-5ad1-bc46-8e54c0e9836c",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "23917829-2396-56c6-a2de-a453e8ff1f68",
+      "name": "Mondays 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "1eef8a7e-0153-5b7d-924d-c231c99e809e",
+      "name": "Read Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Heartbeat",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "9739e9b7-9062-5e82-868d-d115b5e75248",
+      "name": "Read Heartbeat",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Errors",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "c1755ef1-b5b3-58ec-a09a-47d59ea003b9",
+      "name": "Read Errors",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        780,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.instantly.ai/api/v2/campaigns",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "f1b17a43-8493-5d9b-a1bb-4d57ed53766d",
+      "name": "Instantly Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG Instantly API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.instantly.ai/api/v2/campaigns/analytics",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "26283924-c638-5de7-9b01-50c7d7bbb85a",
+      "name": "Instantly Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG Instantly API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-05 · Build the weekly summary (email + Summary tab values).\n// Sheet is the source for lead counts; Instantly analytics (if reachable) is the source for emails sent.\nconst WINDOW_DAYS = parseInt($env.REPORT_WINDOW_DAYS || '7', 10);\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst now = new Date();\nconst since = new Date(now.getTime() - WINDOW_DAYS * 86400000);\nconst inWin = v => { const d = new Date(s(v)); return !isNaN(d) && d >= since; };\n\nconst leads = $('Read Leads').all().map(i => i.json).filter(r => r['Lead ID']);\nconst hb = $('Read Heartbeat').all().map(i => i.json).filter(r => r['Workflow']);\nconst errs = $('Read Errors').all().map(i => i.json).filter(r => r['Timestamp']);\nconst camps = $('Instantly Campaigns').all().map(i => i.json);\nconst stats = $('Instantly Analytics').all().map(i => i.json);\n\nconst count = fn => leads.filter(fn).length;\nconst st = x => r => s(r['Current Status']) === x;\nconst added = count(r => inWin(r['Date Added']));\nconst enrolled = count(r => inWin(r['Date Enrolled']));\nconst contacted = count(r => inWin(r['Last Email Sent']));\nconst replies = count(r => inWin(r['Reply Date']));\nconst unsubs = count(r => s(r['Current Status']) === 'UNSUBSCRIBED' && inWin(r['Last Updated']));\nconst errorLeads = count(st('ERROR'));\nconst errorsWeek = errs.filter(e => inWin(e['Timestamp'])).length;\nconst totalReplies = count(r => s(r['Reply Date']));\nconst totalContacted = count(r => s(r['Last Email Sent']));\nconst replyRate = totalContacted ? (100 * totalReplies / totalContacted).toFixed(1) + '%' : 'n/a';\n\n// ---- Instantly (best effort; the report must not fail just because Instantly is unreachable) ----\nconst campList = camps.flatMap(c => Array.isArray(c.items) ? c.items : (Array.isArray(c) ? c : [c])).filter(c => c && c.name);\nconst statusName = { 0: 'Draft', 1: 'Active', 2: 'Paused', 3: 'Completed' };\nconst activeCampaigns = campList.filter(c => c.status === 1).length;\nconst campaignStatus = campList.length\n  ? campList.map(c => `${c.name}: ${statusName[c.status] || 'status ' + c.status}`).join('; ')\n  : 'Instantly data unavailable (check API key / see execution log)';\nconst statRows = stats.flatMap(x => Array.isArray(x) ? x : (Array.isArray(x.items) ? x.items : [x])).filter(x => x && x.emails_sent_count !== undefined);\nconst instantlySent = statRows.length ? statRows.reduce((a, x) => a + (x.emails_sent_count || 0), 0) : null;\n\n// ---- Health ----\nconst bad = hb.filter(h => s(h['Health']) && s(h['Health']) !== 'OK');\nconst health = hb.length ? (bad.length ? `ATTENTION: ${bad.map(h => `${h['Workflow']} (${h['Health']})`).join(', ')}` : 'All workflows OK') : 'No heartbeat data yet';\nconst lastSuccess = hb.map(h => s(h['Last Success'])).filter(Boolean).sort().pop() || 'n/a';\n\nconst D = d => d.toISOString().slice(0, 10);\nconst rows = [\n  ['Leads added', added], ['Leads enrolled', enrolled], ['Leads contacted (an email sent)', contacted],\n  ['Emails sent (all time, per Instantly)', instantlySent === null ? 'n/a' : instantlySent],\n  ['Replies', replies], ['Reply rate (all time)', replyRate], ['Unsubscribes', unsubs], ['Errors logged', errorsWeek],\n  ['Leads currently in ERROR', errorLeads], ['Active campaigns', activeCampaigns], ['Workflow health', health]\n];\nconst table = rows.map(([k, v]) => `<tr><td style=\"padding:4px 12px 4px 0\">${k}</td><td style=\"padding:4px 0\"><b>${v}</b></td></tr>`).join('');\nconst html = `<h2>LXG Outreach — weekly summary</h2><p>${D(since)} → ${D(now)}</p><table>${table}</table>` +\n  `<p>Campaigns: ${campaignStatus}</p><p style=\"color:#666;font-size:12px\">Open n8n to inspect workflows and executions. Open the Google Sheet for lead-level detail.</p>`;\n\nconst summaryRows = [\n  ['Current campaign status', campaignStatus, 'Written by LXG - 05'],\n  ['Last successful workflow run', lastSuccess, 'From Heartbeat tab'],\n  ['Workflow health', health, 'From Heartbeat tab'],\n  ['Emails sent (Instantly, all time)', instantlySent === null ? 'n/a' : instantlySent, 'Instantly analytics'],\n  ['Last report generated', now.toISOString(), 'Written by LXG - 05']\n].map(([Metric, Value, Notes]) => ({ json: { Metric, Value: String(Value), Notes } }));\n\nreturn [{ json: { subject: `LXG Outreach — weekly summary (${D(now)})`, html, summaryRows: summaryRows.map(r => r.json) } }];\n"
+      },
+      "id": "235efe60-c508-5d7a-8fec-5017de4c6852",
+      "name": "Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.ALERT_EMAIL_FROM }}",
+        "toEmail": "={{ $env.REPORT_EMAIL_TO || $env.ALERT_EMAIL_TO }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "f7572a20-8a6e-59d3-a8f2-4e242debdf96",
+      "name": "Send Weekly Summary",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1820,
+        -220
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "LXG SMTP (alerts)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-05 · One item per Summary row so the Sheets node can upsert them.\nreturn $('Build Report').first().json.summaryRows.map(r => ({ json: r }));\n"
+      },
+      "id": "8a2e9e93-d449-5909-93da-4f6664de4941",
+      "name": "Summary rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Summary",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Metric": "={{ $json[\"Metric\"] }}",
+            "Value": "={{ $json[\"Value\"] }}",
+            "Notes": "={{ $json[\"Notes\"] }}"
+          },
+          "matchingColumns": [
+            "Metric"
+          ],
+          "schema": [
+            {
+              "id": "Metric",
+              "displayName": "Metric",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Value",
+              "displayName": "Value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "43103cec-f01d-5cae-84ce-ddd9cc3e7f2e",
+      "name": "Update Summary tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2080,
+        220
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mondays 08:00": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Read Heartbeat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Heartbeat": {
+      "main": [
+        [
+          {
+            "node": "Read Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Errors": {
+      "main": [
+        [
+          {
+            "node": "Instantly Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instantly Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Instantly Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instantly Analytics": {
+      "main": [
+        [
+          {
+            "node": "Build Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Weekly Summary": {
+      "main": [
+        [
+          {
+            "node": "Summary rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary rows": {
+      "main": [
+        [
+          {
+            "node": "Update Summary tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

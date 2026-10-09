@@ -1,0 +1,665 @@
+{
+  "name": "LXG - 06 - Health Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LXG-06 Health Monitor (heartbeat)\nHourly. Asks the n8n API for every `LXG - *` workflow's last success / last failure, writes the **Heartbeat** tab and emails an alert when a workflow is inactive, failing, stale or missing (max one alert per issue per 24h).\n\nNeeds an n8n API key (Settings → n8n API) saved as credential *LXG n8n API*. Optional: `HEARTBEAT_PING_URL` for an external dead-man's-switch.",
+        "height": 220,
+        "width": 520,
+        "color": 4
+      },
+      "id": "97ea2156-89db-5666-84c6-5d39b4cd8060",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -440
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "2e4e38cf-9acf-5c37-8fed-b0bff8afe41b",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "00d38b55-a350-58e0-a294-44644b640fb0",
+      "name": "Hourly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.N8N_INTERNAL_API_URL || 'http://localhost:5678/api/v1') + '/workflows?limit=250' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "6ae7fb2b-b1b2-5d2e-9483-4fd95886b0bc",
+      "name": "List Workflows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG n8n API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-06 · Keep only the LXG workflows from the n8n API response.\nconst data = ($input.first().json.data) || [];\nconst api = $env.N8N_INTERNAL_API_URL || 'http://localhost:5678/api/v1';\nreturn data.filter(w => /^LXG - /.test(w.name)).map(w => ({ json: {\n  id: w.id, name: w.name, active: !!w.active,\n  urlSuccess: `${api}/executions?limit=1&status=success&workflowId=${w.id}`,\n  urlError: `${api}/executions?limit=1&status=error&workflowId=${w.id}`\n} }));\n"
+      },
+      "id": "5dd4b90f-151e-5ed6-a6f6-c2a059c6d33b",
+      "name": "Filter LXG Workflows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.urlSuccess }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "e222dc75-88b7-505c-a660-9662ab53b840",
+      "name": "Get Last Success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        -220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG n8n API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.urlError }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "599a3cb5-6297-5f83-bd88-aea57cee70a2",
+      "name": "Get Last Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "LXG n8n API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {},
+      "id": "70a4bccc-cdd2-5109-ad96-134c30cadec6",
+      "name": "Wait for both",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Heartbeat",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "157a0d80-78ba-545e-9692-61289e9b801c",
+      "name": "Read Heartbeat",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1300,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-06 · Decide the health of every LXG workflow and which ones need an email alert.\n// EXPECTED = how long a workflow may go without a successful run before it counts as stale.\n// null = event-driven (webhook) so no staleness check, but failures are still flagged.\nconst EXPECTED = {\n  'LXG - 01 - Apollo Lead Intake':     { maxGapH: 30 },     // daily\n  'LXG - 02 - Lead Qualification':     { maxGapH: 6 },      // every 2h\n  'LXG - 03 - Instantly Enrollment':   { maxGapH: 3 },      // every 30 min\n  'LXG - 04 - Reply Handler':          { maxGapH: null },   // webhook\n  'LXG - 05 - Reporting':              { maxGapH: 192 },    // weekly (8 days)\n  'LXG - 06 - Health Monitor':         { maxGapH: 3 },      // hourly\n  'LXG - 99 - Error Handler':          { maxGapH: null, needsActive: false }    // error-triggered: runs while inactive\n};\nconst ALERT_THROTTLE_H = parseInt($env.ALERT_THROTTLE_HOURS || '24', 10);\nconst s = v => (v === null || v === undefined) ? '' : String(v).trim();\nconst now = new Date();\nconst hoursAgo = iso => iso ? (now - new Date(iso)) / 3600000 : Infinity;\n\nconst wfs = $('Filter LXG Workflows').all().map(i => i.json);\n// Executions are matched to workflows by workflowId (each API response holds at most one execution).\nconst byWf = node => { const m = new Map(); for (const i of $(node).all()) for (const e of (i.json.data || [])) if (!m.has(e.workflowId)) m.set(e.workflowId, e); return m; };\nconst succM = byWf('Get Last Success'), failM = byWf('Get Last Error');\nconst prev = new Map($('Read Heartbeat').all().map(i => i.json).filter(r => r['Workflow']).map(r => [r['Workflow'], r]));\n\nconst rows = [], alerts = [];\nconst seen = new Set();\nwfs.forEach(w => {\n  seen.add(w.name);\n  const exp = EXPECTED[w.name];\n  const S = succM.get(w.id), F = failM.get(w.id);\n  const ls = S ? (S.stoppedAt || S.startedAt) : '';\n  const lf = F ? (F.stoppedAt || F.startedAt) : '';\n  let health = 'OK', critical = false, why = '';\n  if (!exp) { health = 'OK'; }\n  else if (!w.active && exp.needsActive !== false) { health = 'INACTIVE'; critical = true; why = 'workflow is not active'; }\n  else if (lf && (!ls || new Date(lf) > new Date(ls))) { health = 'FAILING'; critical = true; why = `last execution failed (${lf})`; }\n  else if (exp.maxGapH && !ls) { health = 'NEVER_RAN'; why = 'no successful execution recorded yet'; }\n  else if (exp.maxGapH && hoursAgo(ls) > exp.maxGapH) { health = 'STALE'; critical = true; why = `no success for ${Math.round(hoursAgo(ls))}h (limit ${exp.maxGapH}h)`; }\n  const p = prev.get(w.name) || {};\n  const throttled = s(p['Health']) === health && hoursAgo(s(p['Last Alerted'])) < ALERT_THROTTLE_H;\n  const alertNow = critical && !throttled;\n  const line = `• ${w.name}: ${health} — ${why}`;\n  if (alertNow) alerts.push(line);\n  rows.push({ json: {\n    'Workflow': w.name, 'Expected Max Gap (h)': exp && exp.maxGapH ? String(exp.maxGapH) : 'event-driven',\n    'Active': w.active ? 'yes' : 'NO', 'Last Success': ls, 'Last Failure': lf,\n    'Last Failure Message': F ? `see n8n execution ${F.id}` : '', 'Health': health,\n    'Last Checked': now.toISOString(), 'Last Alerted': alertNow ? now.toISOString() : s(p['Last Alerted']),\n    _alert: alertNow ? line : ''\n  } });\n});\nfor (const name of Object.keys(EXPECTED)) {\n  if (!seen.has(name)) {\n    rows.push({ json: { 'Workflow': name, 'Expected Max Gap (h)': '', 'Active': 'MISSING', 'Last Success': '', 'Last Failure': '', 'Last Failure Message': '', 'Health': 'MISSING', 'Last Checked': now.toISOString(), 'Last Alerted': '' } });\n    const p = prev.get(name) || {};\n    if (!(s(p['Health']) === 'MISSING' && hoursAgo(s(p['Last Alerted'])) < ALERT_THROTTLE_H)) {\n      const line = `• ${name}: MISSING — not found in n8n (import it)`;\n      alerts.push(line);\n      rows[rows.length - 1].json['Last Alerted'] = now.toISOString();\n      rows[rows.length - 1].json._alert = line;\n    }\n  }\n}\n// Rows go to the Heartbeat tab; `_alert` (extra field, ignored by the sheet node) is read by the Alert Gate node.\nreturn rows;\n"
+      },
+      "id": "3452c3a6-8b10-5ac6-b044-fa21c5a4dd83",
+      "name": "Evaluate Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Heartbeat",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json[\"Workflow\"] }}",
+            "Expected Max Gap (h)": "={{ $json[\"Expected Max Gap (h)\"] }}",
+            "Active": "={{ $json[\"Active\"] }}",
+            "Last Success": "={{ $json[\"Last Success\"] }}",
+            "Last Failure": "={{ $json[\"Last Failure\"] }}",
+            "Last Failure Message": "={{ $json[\"Last Failure Message\"] }}",
+            "Health": "={{ $json[\"Health\"] }}",
+            "Last Checked": "={{ $json[\"Last Checked\"] }}",
+            "Last Alerted": "={{ $json[\"Last Alerted\"] }}"
+          },
+          "matchingColumns": [
+            "Workflow"
+          ],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Expected Max Gap (h)",
+              "displayName": "Expected Max Gap (h)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Active",
+              "displayName": "Active",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Success",
+              "displayName": "Last Success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Failure",
+              "displayName": "Last Failure",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Failure Message",
+              "displayName": "Last Failure Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Health",
+              "displayName": "Health",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Checked",
+              "displayName": "Last Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Alerted",
+              "displayName": "Last Alerted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "a390f5d3-529e-54cc-89ff-ca65b7ee1bf5",
+      "name": "Write Heartbeat",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1820,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "LXG Google Sheets"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// LXG-06 · Build the alert email from the rows the Evaluate Health node flagged.\nconst lines = $('Evaluate Health').all().map(i => i.json._alert).filter(Boolean);\nconst sendAlert = lines.length > 0;\nreturn [{ json: {\n  sendAlert,\n  subject: `[LXG ALERT] ${lines.length} workflow issue(s)`,\n  html: sendAlert ? `<h3>LXG automation needs attention</h3><pre>${lines.join('\\n')}</pre><p>Open n8n → Executions to see what happened. Fix the cause, then re-run or re-activate the workflow.</p>` : ''\n} }];\n"
+      },
+      "id": "3dd6f730-4117-5185-8fc5-3dd89c7a6263",
+      "name": "Alert Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        0
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "5761200d-50fa-5648-82de-713fbc5ab67a",
+              "leftValue": "={{ $json.sendAlert }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ff011a09-3274-5f3d-9fed-fc2136fab771",
+      "name": "Any critical issue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.ALERT_EMAIL_FROM }}",
+        "toEmail": "={{ $env.ALERT_EMAIL_TO }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "c931c6f1-587d-54f4-adaf-e07f45451200",
+      "name": "Send Health Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2600,
+        -220
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "LXG SMTP (alerts)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "5599e96d-cebf-5363-94b9-62096557a619",
+              "leftValue": "={{ !!$env.HEARTBEAT_PING_URL }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6bdd9cb9-a0ca-5927-ba1f-e626d11a2d55",
+      "name": "External ping configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        0
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.HEARTBEAT_PING_URL }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a6b8a1b1-b9e4-5232-8665-224608588ef3",
+      "name": "Ping external monitor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "List Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hourly": {
+      "main": [
+        [
+          {
+            "node": "List Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Workflows": {
+      "main": [
+        [
+          {
+            "node": "Filter LXG Workflows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter LXG Workflows": {
+      "main": [
+        [
+          {
+            "node": "Get Last Success",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Last Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Last Success": {
+      "main": [
+        [
+          {
+            "node": "Wait for both",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Last Error": {
+      "main": [
+        [
+          {
+            "node": "Wait for both",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Wait for both": {
+      "main": [
+        [
+          {
+            "node": "Read Heartbeat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Heartbeat": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Health": {
+      "main": [
+        [
+          {
+            "node": "Write Heartbeat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Heartbeat": {
+      "main": [
+        [
+          {
+            "node": "Alert Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Gate": {
+      "main": [
+        [
+          {
+            "node": "Any critical issue?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any critical issue?": {
+      "main": [
+        [
+          {
+            "node": "Send Health Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "External ping configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Health Alert": {
+      "main": [
+        [
+          {
+            "node": "External ping configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "External ping configured?": {
+      "main": [
+        [
+          {
+            "node": "Ping external monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
